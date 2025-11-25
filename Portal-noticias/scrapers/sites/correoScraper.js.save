@@ -1,0 +1,64 @@
+const BaseScraper = require('../baseScraper');
+
+class CorreoScraper extends BaseScraper {
+  constructor(categoryId) {
+    super(); // Llamar al constructor padre primero
+    this.name = 'Diario Correo';
+    this.baseUrl = 'https://diariocorreo.pe';
+    this.categoryId = categoryId;
+  }
+
+  async scrape() {
+    console.log(`🔍 Scraping ${this.name}...`);
+    const news = [];
+    
+    try {
+      const $ = await this.fetchHTML(this.baseUrl);
+      if (!$) {
+        console.log(`❌ ${this.name}: No se pudo obtener HTML`);
+        return news;
+      }
+
+      const articles = $('.story, .news, .noticia, .item, article, .post');
+      
+      articles.each((index, element) => {
+        try {
+          const $element = $(element);
+          const title = $element.find('h2, h3, .title, .titulo').first().text().trim();
+          const link = $element.find('a').first().attr('href');
+          const image = $element.find('img').first().attr('src') || 
+                       $element.find('img').first().attr('data-src');
+          const summary = $element.find('p, .summary, .resumen, .excerpt').first().text().trim();
+
+          if (title && link) {
+            const fullLink = link.startsWith('http') ? link : `${this.baseUrl}${link}`;
+            
+            news.push({
+              title,
+              summary: summary || '',
+              link: fullLink,
+              image: image || '',
+              source: this.name,
+              categoryId: this.categoryId
+            });
+          }
+        } catch (error) {
+          console.log(`Error procesando artículo ${index} de ${this.name}:`, error.message);
+        }
+      });
+
+      console.log(`✅ ${this.name}: ${news.length} noticias encontradas`);
+	      // GUARDAR EN BD
+      if (news.length > 0) {
+        const savedCount = await this.saveNews(news);
+        console.log(`💾 ${this.name}: ${savedCount} noticias guardadas en BD`);
+      }
+    } catch (error) {
+      console.error(`❌ Error scraping ${this.name}:`, error.message);
+    }
+
+    return news;
+  }
+}
+
+module.exports = CorreoScraper;
