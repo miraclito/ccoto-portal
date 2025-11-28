@@ -1,296 +1,181 @@
-// src/pages/Home.js
 import React, { useEffect, useState } from 'react';
 import NewsList from '../components/news/NewsList';
 import { getNews } from '../services/newsService';
 import categoryService from '../services/categoryService';
 
-// Helper para mostrar/extraer la fuente desde sourceUrl / campos opcionales
-const extractSourceName = (item) => {
-  if (!item) return '';
-  if (item.sourceName) return item.sourceName;
-  if (item.source) return item.source;
-  if (item.sourceUrl) {
-    try {
-      const hostname = new URL(item.sourceUrl).hostname;
-      return hostname.replace(/^www\./, '');
-    } catch {
-      return 'Fuente externa';
-    }
-  }
-  return 'Original';
-};
-
 const Home = () => {
   const [news, setNews] = useState([]);
+  const [heroNews, setHeroNews] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [initialLoading, setInitialLoading] = useState(true);
-  const [error, setError] = useState('');
-
-  // filtros
-  const [search, setSearch] = useState('');
-  const [debouncedSearch, setDebouncedSearch] = useState('');
-  const [selectedCategoryId, setSelectedCategoryId] = useState('');
-  const [selectedSource, setSelectedSource] = useState('');
-  const [sortBy, setSortBy] = useState('latest'); // latest | oldest
-
   const [categories, setCategories] = useState([]);
-  const [sources, setSources] = useState([]);
+  const [selectedCategory, setSelectedCategory] = useState('');
 
-  // paginación
-  const [page, setPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
-
-  // Debounce del buscador (espera 500ms para no pegarle tanto a la API)
   useEffect(() => {
-    const handler = setTimeout(() => {
-      setDebouncedSearch(search);
-      setPage(1);
-    }, 500);
-
-    return () => clearTimeout(handler);
-  }, [search]);
-
-  // Cargar categorías una sola vez
-  useEffect(() => {
-    const loadCategories = async () => {
-      try {
-        const res = await categoryService.getAllCategories(); // 👈 CORREGIDO
-
-        // res viene de categoryService, que devuelve response.data
-        if (Array.isArray(res)) {
-          setCategories(res);
-        } else if (Array.isArray(res?.data)) {
-          setCategories(res.data);
-        } else if (Array.isArray(res?.categories)) {
-          setCategories(res.categories);
-        } else {
-          setCategories([]);
-        }
-      } catch (err) {
-        console.error('Error cargando categorías', err);
-      }
-    };
-
-    loadCategories();
-  }, []);
-
-  // Cargar noticias cuando cambian filtros/página
-  useEffect(() => {
-    const loadNews = async () => {
+    const fetchData = async () => {
       setLoading(true);
-      setError('');
-
       try {
-        const { news: fetchedNews, totalPages: apiTotalPages } = await getNews({
-          search: debouncedSearch,
-          categoryId: selectedCategoryId || '',
-          page,
-          limit: 12,
+        // Cargar categorías
+        const catRes = await categoryService.getAllCategories();
+        const cats = Array.isArray(catRes) ? catRes : (catRes.data || []);
+        setCategories(cats);
+
+        // Cargar noticias
+        const newsRes = await getNews({
+          limit: 13, // 1 para Hero + 12 para grid
           isPublished: true,
+          categoryId: selectedCategory
         });
 
-        setNews(fetchedNews || []);
-        setTotalPages(apiTotalPages || 1);
-
-        // construir lista de fuentes únicas a partir de las noticias
-        const uniqueSources = Array.from(
-          new Set(
-            (fetchedNews || [])
-              .map((n) => extractSourceName(n))
-              .filter((name) => !!name)
-          )
-        );
-        setSources(uniqueSources);
-      } catch (err) {
-        console.error(err);
-        setError('Ocurrió un error al cargar las noticias.');
+        const allNews = newsRes.news || [];
+        if (allNews.length > 0) {
+          setHeroNews(allNews[0]);
+          setNews(allNews.slice(1));
+        } else {
+          setHeroNews(null);
+          setNews([]);
+        }
+      } catch (error) {
+        console.error('Error fetching data:', error);
       } finally {
         setLoading(false);
-        setInitialLoading(false);
       }
     };
 
-    loadNews();
-  }, [debouncedSearch, selectedCategoryId, page]);
-
-  // Aplicar filtros de fuente y orden en el FRONT (no en la BD)
-  let processedNews = [...news];
-
-  if (selectedSource) {
-    processedNews = processedNews.filter(
-      (item) => extractSourceName(item) === selectedSource
-    );
-  }
-
-  if (sortBy === 'latest') {
-    processedNews.sort((a, b) => {
-      const da = new Date(a.publishedAt || a.createdAt || 0);
-      const db = new Date(b.publishedAt || b.createdAt || 0);
-      return db - da; // más recientes primero
-    });
-  } else if (sortBy === 'oldest') {
-    processedNews.sort((a, b) => {
-      const da = new Date(a.publishedAt || a.createdAt || 0);
-      const db = new Date(b.publishedAt || b.createdAt || 0);
-      return da - db; // más antiguas primero
-    });
-  }
-
-  const handleResetFilters = () => {
-    setSearch('');
-    setSelectedCategoryId('');
-    setSelectedSource('');
-    setSortBy('latest');
-    setPage(1);
-  };
+    fetchData();
+  }, [selectedCategory]);
 
   return (
-    <div className="min-h-screen bg-gray-100 flex flex-col">
-      {/* OJO: Navbar y Footer ya vienen desde App.js, aquí NO los usamos */}
+    <div className="min-h-screen bg-secondary-50">
+      {/* Hero Section */}
+      <section className="relative bg-secondary-900 text-white pt-32 pb-20 px-4 overflow-hidden">
+        {/* Background Pattern */}
+        <div className="absolute inset-0 opacity-10 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]"></div>
+        <div className="absolute top-0 right-0 w-1/2 h-full bg-gradient-to-l from-primary-900/50 to-transparent"></div>
 
-      {/* Encabezado */}
-      <header className="bg-white shadow-sm">
-        <div className="max-w-6xl mx-auto px-4 py-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">
-              Portal de Noticias
-            </h1>
-            <p className="text-sm text-gray-500">
-              Noticias actualizadas desde diferentes medios, gestionadas con tu
-              sistema de scraping.
-            </p>
-          </div>
-          <button
-            onClick={handleResetFilters}
-            className="mt-2 sm:mt-0 inline-flex items-center justify-center px-4 py-2 rounded-md text-sm font-medium bg-gray-900 text-white hover:bg-gray-800 transition"
-          >
-            Limpiar filtros
-          </button>
-        </div>
-      </header>
-
-      {/* Filtros */}
-      <section className="bg-white border-b border-gray-200">
-        <div className="max-w-6xl mx-auto px-4 py-4 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-          {/* Buscador */}
-          <div className="flex-1">
-            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
-              Buscar
-            </label>
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => {
-                setSearch(e.target.value);
-                setPage(1);
-              }}
-              placeholder="Buscar por título o contenido..."
-              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            />
-          </div>
-
-          {/* Categoría (usa categoryId real) */}
-          <div className="md:w-44">
-            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
-              Categoría
-            </label>
-            <select
-              value={selectedCategoryId}
-              onChange={(e) => {
-                setSelectedCategoryId(e.target.value);
-                setPage(1);
-              }}
-              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="">Todas</option>
-              {categories.map((cat) => (
-                <option key={cat.id || cat._id} value={cat.id}>
-                  {cat.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Fuente (filtrado en frontend) */}
-          <div className="md:w-44">
-            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
-              Fuente
-            </label>
-            <select
-              value={selectedSource}
-              onChange={(e) => setSelectedSource(e.target.value)}
-              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="">Todas</option>
-              {sources.map((src) => (
-                <option key={src} value={src}>
-                  {src}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Orden */}
-          <div className="md:w-40">
-            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
-              Ordenar por
-            </label>
-            <select
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value)}
-              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="latest">Más recientes</option>
-              <option value="oldest">Más antiguas</option>
-            </select>
-          </div>
+        <div className="container mx-auto relative z-10">
+          {loading ? (
+            <div className="animate-pulse h-96 bg-secondary-800 rounded-3xl"></div>
+          ) : heroNews ? (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
+              <div className="space-y-6 animate-fade-in">
+                <span className="inline-block px-4 py-1.5 bg-primary-600 text-white text-sm font-bold rounded-full shadow-lg shadow-primary-500/30 mb-4">
+                  🔥 Noticia Destacada
+                </span>
+                <h1 className="text-4xl md:text-6xl font-display font-bold leading-tight">
+                  {heroNews.title}
+                </h1>
+                <p className="text-lg text-secondary-300 line-clamp-3">
+                  {heroNews.summary || heroNews.content?.substring(0, 200)}
+                </p>
+                <button
+                  onClick={() => window.location.href = `/news/${heroNews.id}`}
+                  className="btn-primary mt-4 inline-flex items-center gap-2"
+                >
+                  Leer historia completa
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 8l4 4m0 0l-4 4m4-4H3" />
+                  </svg>
+                </button>
+              </div>
+              <div className="relative group cursor-pointer" onClick={() => window.location.href = `/news/${heroNews.id}`}>
+                <div className="absolute -inset-1 bg-gradient-to-r from-primary-600 to-accent-600 rounded-3xl blur opacity-30 group-hover:opacity-75 transition duration-1000"></div>
+                <div className="relative rounded-3xl overflow-hidden shadow-2xl aspect-video">
+                  <img
+                    src={heroNews.imageUrl || 'https://images.unsplash.com/photo-1504711434969-e33886168f5c?q=80&w=1000&auto=format&fit=crop'}
+                    alt={heroNews.title}
+                    className="w-full h-full object-cover transform group-hover:scale-105 transition-transform duration-700"
+                  />
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="text-center py-20">
+              <h2 className="text-3xl font-bold text-secondary-400">No hay noticias destacadas por el momento.</h2>
+            </div>
+          )}
         </div>
       </section>
 
-      {/* Contenido */}
-      <main className="flex-1">
-        <div className="max-w-6xl mx-auto px-4 py-6">
-          {error && (
-            <div className="mb-4 rounded-md bg-red-50 border border-red-200 px-4 py-2 text-sm text-red-700">
-              {error}
-            </div>
-          )}
-
-          <NewsList news={processedNews} loading={loading && !initialLoading} />
-
-          {/* Paginación backend */}
-          {totalPages > 1 && (
-            <div className="mt-6 flex items-center justify-center gap-3">
-              <button
-                disabled={page <= 1}
-                onClick={() => setPage((p) => p - 1)}
-                className={`px-3 py-1 rounded-md text-sm border ${
-                  page <= 1
-                    ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                    : 'bg-white text-gray-700 hover:bg-gray-50'
+      {/* Categories & Content */}
+      <section className="py-16 container mx-auto px-4">
+        {/* Trending Categories */}
+        <div className="mb-16">
+          <div className="text-center mb-8">
+            <h2 className="text-2xl font-bold text-secondary-900">Explora por Temas</h2>
+            <p className="text-secondary-500">Descubre lo que está pasando en el mundo</p>
+          </div>
+          <div className="flex flex-wrap gap-3 justify-center">
+            <button
+              onClick={() => setSelectedCategory('')}
+              className={`px-6 py-2 rounded-full text-sm font-bold transition-all duration-300 ${selectedCategory === ''
+                ? 'bg-secondary-900 text-white shadow-lg scale-105'
+                : 'bg-white text-secondary-600 hover:bg-secondary-100 border border-secondary-200'
                 }`}
-              >
-                Anterior
-              </button>
-              <span className="text-sm text-gray-500">
-                Página <span className="font-semibold">{page}</span> de{' '}
-                <span className="font-semibold">{totalPages}</span>
-              </span>
+            >
+              Todas
+            </button>
+            {categories.map(cat => (
               <button
-                disabled={page >= totalPages}
-                onClick={() => setPage((p) => p + 1)}
-                className={`px-3 py-1 rounded-md text-sm border ${
-                  page >= totalPages
-                    ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                    : 'bg-white text-gray-700 hover:bg-gray-50'
-                }`}
+                key={cat.id}
+                onClick={() => setSelectedCategory(cat.id)}
+                className={`px-6 py-2 rounded-full text-sm font-bold transition-all duration-300 ${selectedCategory === cat.id
+                  ? 'bg-primary-600 text-white shadow-lg shadow-primary-500/30 scale-105'
+                  : 'bg-white text-secondary-600 hover:bg-secondary-100 border border-secondary-200'
+                  }`}
               >
-                Siguiente
+                {cat.name}
               </button>
-            </div>
-          )}
+            ))}
+          </div>
         </div>
-      </main>
+
+        {/* News Grid */}
+        <div className="mb-20">
+          <div className="flex items-center justify-between mb-8">
+            <h2 className="text-3xl font-display font-bold text-secondary-900">
+              Últimas Noticias
+            </h2>
+            <div className="h-1 flex-grow mx-6 bg-secondary-200 rounded-full"></div>
+            <a href="/news" className="text-primary-600 font-bold hover:text-primary-700 transition-colors flex items-center gap-1">
+              Ver todo <span className="text-xl">→</span>
+            </a>
+          </div>
+
+          <NewsList news={news} loading={loading} />
+        </div>
+
+        {/* Newsletter Section */}
+        <div className="relative bg-secondary-900 rounded-3xl p-8 md:p-16 overflow-hidden text-center">
+          <div className="absolute inset-0 opacity-20 bg-[url('https://www.transparenttextures.com/patterns/stardust.png')]"></div>
+          <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-br from-primary-900/50 to-transparent"></div>
+
+          <div className="relative z-10 max-w-2xl mx-auto space-y-6">
+            <span className="inline-block p-3 rounded-2xl bg-white/10 backdrop-blur-sm text-3xl mb-2">
+              📩
+            </span>
+            <h2 className="text-3xl md:text-4xl font-display font-bold text-white">
+              Suscríbete a nuestro boletín
+            </h2>
+            <p className="text-secondary-300 text-lg">
+              Recibe las noticias más importantes directamente en tu bandeja de entrada. Sin spam, solo contenido de calidad.
+            </p>
+
+            <form className="flex flex-col sm:flex-row gap-4 mt-8" onSubmit={(e) => e.preventDefault()}>
+              <input
+                type="email"
+                placeholder="Tu correo electrónico"
+                className="flex-1 px-6 py-4 rounded-xl bg-white/10 border border-white/20 text-white placeholder-secondary-400 focus:outline-none focus:ring-2 focus:ring-primary-500 backdrop-blur-sm transition-all"
+              />
+              <button className="px-8 py-4 bg-primary-600 hover:bg-primary-500 text-white font-bold rounded-xl shadow-lg shadow-primary-600/30 transition-all transform hover:-translate-y-1">
+                Suscribirse
+              </button>
+            </form>
+            <p className="text-xs text-secondary-500 mt-4">
+              Al suscribirte, aceptas nuestros términos y condiciones.
+            </p>
+          </div>
+        </div>
+      </section>
     </div>
   );
 };

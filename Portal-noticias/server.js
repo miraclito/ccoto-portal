@@ -23,6 +23,8 @@ const newsRoutes = require('./routes/news');
 const scraperRoutes = require('./routes/scrapers');
 const exportRoutes = require('./routes/export');
 const reportRoutes = require('./routes/reports');
+const paymentRoutes = require('./routes/payments');
+const sourceRoutes = require('./routes/sources');
 
 // Usar rutas
 app.use('/api/auth', authRoutes);
@@ -32,6 +34,8 @@ app.use('/api/scrapers', scraperRoutes);
 app.use('/api/export', exportRoutes);
 app.use('/api/scraper', scraperRoutes);
 app.use('/api/reports', reportRoutes);
+app.use('/api/payments', paymentRoutes);
+app.use('/api/sources', sourceRoutes);
 // Ruta de prueba
 app.get('/', (req, res) => {
   res.json({
@@ -66,16 +70,17 @@ const startServer = async () => {
   try {
     // Probar conexión a la base de datos
     await testConnection();
-    
+
     // Sincronizar modelos
-   // await sequelize.sync({ alter: true });
-    console.log('✅ Base de datos conectada (sincronización desactivada)');
+    // await sequelize.sync({ alter: true });
+    console.log('✅ Base de datos conectada (sincronización manual)');
+
     // Iniciar servidor
     app.listen(PORT, '0.0.0.0', () => {
       console.log(`🚀 Server running on port ${PORT}`);
       console.log(`📍 Environment: ${process.env.NODE_ENV}`);
       console.log(`🗄️  Database: ${process.env.DB_NAME}`);
-      
+
       // Iniciar CRON job si está habilitado
       if (process.env.SCRAPE_ENABLED === 'true') {
         scrapingJob = new ScrapingJob();

@@ -1,5 +1,6 @@
 // scrapers/scraperManager.js - VERSIÓN MASIVA
-const { Category } = require('../models');
+const { Category, Source } = require('../models');
+const GenericScraper = require('./genericScraper');
 const RPPScraper = require('./sites/rppScraper');
 const ElComercioScraper = require('./sites/elComercioScraper');
 const LaRepublicaScraper = require('./sites/laRepublicaScraper');
@@ -31,7 +32,8 @@ class ScraperManager {
       console.log(`✅ Categoría ID: ${category.id}`);
 
       // SOLO los scrapers que funcionan bien (sin Reddit por ahora)
-      this.scrapers = [
+      // 1. Scrapers Hardcoded
+      const systemScrapers = [
         new RPPScraper(category.id),
         new ElComercioScraper(category.id),
         new LaRepublicaScraper(category.id),
@@ -39,12 +41,20 @@ class ScraperManager {
         new Peru21Scraper(category.id),
         new CorreoScraper(category.id),
         new OjoScraper(category.id),
-        new ExpresoScraper(category.id),      // NUEVO
-        new LaRazonScraper(category.id),      // NUEVO
-        new TromeScraper(category.id),        // NUEVO
-        new DeporScraper(category.id),        // NUEVO
-        new AmericaScraper(category.id)       // NUEVO
+        new ExpresoScraper(category.id),
+        new LaRazonScraper(category.id),
+        new TromeScraper(category.id),
+        new DeporScraper(category.id),
+        new AmericaScraper(category.id)
       ];
+
+      // 2. Scrapers Dinámicos (Base de Datos)
+      const dynamicSources = await Source.findAll({ where: { isActive: true } });
+      const dynamicScrapers = dynamicSources.map(source => new GenericScraper(source, category.id));
+
+      console.log(`✅ Cargados ${dynamicScrapers.length} scrapers dinámicos desde BD`);
+
+      this.scrapers = [...systemScrapers, ...dynamicScrapers];
 
       console.log(`✅ ${this.scrapers.length} scrapers peruanos inicializados`);
     } catch (error) {
@@ -75,10 +85,10 @@ class ScraperManager {
         try {
           console.log(`\n📰 Ejecutando: ${scraper.name}`);
           const start = Date.now();
-          
+
           const news = await scraper.scrape();
           const duration = ((Date.now() - start) / 1000).toFixed(2);
-          
+
           cycleNews += news.length;
           totalNews += news.length;
 
@@ -94,7 +104,7 @@ class ScraperManager {
 
           // Pausa entre scrapers
           await this.delay(3000);
-          
+
         } catch (error) {
           console.error(`❌ Error en ${scraper.name}:`, error.message);
           allResults.push({
@@ -115,10 +125,10 @@ class ScraperManager {
       if (totalNews < targetCount) {
         const remaining = targetCount - totalNews;
         const estimatedCycles = Math.ceil(remaining / cycleNews);
-        
+
         console.log(`\n⏳ Necesitamos ~${estimatedCycles} ciclos más`);
         console.log(`💤 Esperando 2 minutos antes del próximo ciclo...`);
-        
+
         await this.delay(120000); // 2 minutos de espera
         cycle++;
       }
@@ -144,7 +154,7 @@ class ScraperManager {
       const time = parseFloat(result.tiempo) || 0;
       return sum + time;
     }, 0);
-    
+
     const minutes = Math.floor(totalSeconds / 60);
     const seconds = Math.floor(totalSeconds % 60);
     return `${minutes}m ${seconds}s`;
@@ -152,7 +162,7 @@ class ScraperManager {
 
   showSummary(results) {
     const summary = {};
-    
+
     results.forEach(result => {
       if (!summary[result.scraper]) {
         summary[result.scraper] = 0;
@@ -209,10 +219,10 @@ class ScraperManager {
 
   async runSpecific(scraperName) {
     await this.initializeScrapers();
-    const scraper = this.scrapers.find(s => 
+    const scraper = this.scrapers.find(s =>
       s.name.toLowerCase().includes(scraperName.toLowerCase())
     );
-    
+
     if (!scraper) {
       console.log(`❌ Scraper "${scraperName}" no encontrado`);
       return { totalNews: 0, results: [] };

@@ -36,6 +36,14 @@ const User = sequelize.define('User', {
   isActive: {
     type: DataTypes.BOOLEAN,
     defaultValue: true
+  },
+  plan: {
+    type: DataTypes.ENUM('free', 'premium'),
+    defaultValue: 'free'
+  },
+  subscriptionExpiresAt: {
+    type: DataTypes.DATE,
+    allowNull: true
   }
 }, {
   tableName: 'users',
@@ -57,7 +65,7 @@ const User = sequelize.define('User', {
 });
 
 // Método para comparar passwords
-User.prototype.comparePassword = async function(candidatePassword) {
+User.prototype.comparePassword = async function (candidatePassword) {
   return await bcrypt.compare(candidatePassword, this.password);
 };
 

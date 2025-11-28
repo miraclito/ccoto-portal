@@ -15,6 +15,8 @@ import NewsDetail from './components/news/NewsDetail';
 import Login from './components/auth/Login';
 import Register from './components/auth/Register';
 import AdminPage from './pages/AdminPage';
+import SubscriptionPage from './pages/SubscriptionPage';
+import ReportsPage from './pages/ReportsPage';
 
 // Protected Route Component
 const ProtectedRoute = ({ children }) => {
@@ -41,6 +43,19 @@ function App() {
               <Route path="/news/:id" element={<NewsDetail />} />
               <Route path="/login" element={<Login />} />
               <Route path="/register" element={<Register />} />
+
+              {/* Protected Routes */}
+              <Route path="/subscribe" element={
+                <ProtectedRoute>
+                  <SubscriptionPage />
+                </ProtectedRoute>
+              } />
+
+              <Route path="/reports" element={
+                <ProtectedRoute>
+                  <ReportsPage />
+                </ProtectedRoute>
+              } />
 
               {/* Protected Admin Routes */}
               <Route

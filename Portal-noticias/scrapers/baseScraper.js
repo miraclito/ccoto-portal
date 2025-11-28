@@ -42,18 +42,18 @@ class BaseScraper {
       }
 
       const response = await axios.get(url, config);
-      
+
       // Verificar si es JSON o HTML
       const contentType = response.headers['content-type'] || '';
       if (contentType.includes('application/json') || url.includes('.json')) {
         return response.data; // Devolver JSON directamente
       }
-      
+
       return response.data; // Devolver HTML
 
     } catch (error) {
       console.error(`❌ Error fetching ${url}:`, error.message);
-      
+
       // Manejar errores específicos
       if (error.response) {
         if (error.response.status === 429) {
@@ -65,7 +65,7 @@ class BaseScraper {
           console.log('🔍 Página no encontrada (404)');
         }
       }
-      
+
       return null;
     }
   }
@@ -105,21 +105,21 @@ class BaseScraper {
     if (!url || url === 'self' || url === 'default' || url === 'image' || url === 'nsfw') {
       return false;
     }
-    
+
     const imagePatterns = [
       /\.(jpg|jpeg|png|gif|webp|bmp)$/i,
       /imgur\.com\/[a-zA-Z0-9]+$/i,
       /redd\.it\/[a-zA-Z0-9]+$/i,
       /i\.redd\.it\/[a-zA-Z0-9]+\.[a-z]+$/i
     ];
-    
+
     return imagePatterns.some(pattern => pattern.test(url));
   }
 
   // Limpiar contenido HTML/Reddit
   cleanContent(content) {
     if (!content) return '';
-    
+
     return content
       .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1') // Remover markdown links [text](url)
       .replace(/\*\*([^*]+)\*\*/g, '$1') // Remover **bold**
@@ -128,6 +128,79 @@ class BaseScraper {
       .replace(/\n{3,}/g, '\n\n') // Normalizar saltos de línea
       .replace(/>\s?/g, '') // Remover quotes de Reddit
       .trim();
+  }
+
+  /**
+   * Intenta extraer una imagen válida de un elemento o URL
+   * @param {Object} $element - Elemento Cheerio donde buscar (opcional)
+   * @param {String} articleUrl - URL del artículo para buscar og:image (opcional)
+   */
+  async extractImage($element, articleUrl = null) {
+    let imageUrl = null;
+
+    // 1. Intentar extraer del elemento HTML (card/item de la lista)
+    if ($element) {
+      const $ = this.parseHTML(''); // Necesario para usar helpers de cheerio si $element es un objeto cheerio
+      const imgCandidates = [
+        // Atributos directos en el elemento o sus hijos
+        () => $element.find('img').attr('src'),
+        () => $element.find('img').attr('data-src'),
+        () => $element.find('img').attr('data-original'),
+        () => $element.find('img').attr('data-lazy-src'),
+        () => $element.find('img').attr('srcset')?.split(',')[0]?.split(' ')[0], // Primera imagen del srcset
+
+        // Buscar en etiquetas source (picture)
+        () => $element.find('picture source').attr('srcset')?.split(',')[0]?.split(' ')[0],
+
+        // Buscar en estilos background-image
+        () => {
+          const style = $element.find('[style*="background-image"]').attr('style');
+          const match = style?.match(/url\(['"]?(.*?)['"]?\)/);
+          return match ? match[1] : null;
+        }
+      ];
+
+      for (const getCandidate of imgCandidates) {
+        try {
+          const url = getCandidate();
+          if (url && this.isValidImageUrl(url)) {
+            imageUrl = url;
+            break;
+          }
+        } catch (e) {
+          // Ignorar errores de selectores
+        }
+      }
+    }
+
+    // 2. Si no se encontró imagen y tenemos URL del artículo, intentar buscar og:image
+    if (!imageUrl && articleUrl) {
+      try {
+        console.log(`    🔍 Buscando imagen en detalle: ${articleUrl}`);
+        const html = await this.fetchPage(articleUrl);
+        if (html) {
+          const $page = this.parseHTML(html);
+          const ogImage = $page('meta[property="og:image"]').attr('content') ||
+            $page('meta[name="twitter:image"]').attr('content') ||
+            $page('link[rel="image_src"]').attr('href');
+
+          if (ogImage && this.isValidImageUrl(ogImage)) {
+            imageUrl = ogImage;
+            console.log(`    📸 Imagen encontrada en detalle: ${imageUrl.substring(0, 50)}...`);
+          }
+        }
+      } catch (error) {
+        console.log(`    ⚠️ Error buscando imagen en detalle: ${error.message}`);
+      }
+    }
+
+    // 3. Normalizar URL relativa
+    if (imageUrl && imageUrl.startsWith('/')) {
+      const urlObj = new URL(this.baseUrl);
+      imageUrl = `${urlObj.protocol}//${urlObj.host}${imageUrl}`;
+    }
+
+    return imageUrl;
   }
 
   async saveNews(newsData) {
@@ -140,7 +213,7 @@ class BaseScraper {
 
       // Generar slug automáticamente
       const slug = this.generateSlug(newsData.title);
-      
+
       // Verificar si ya existe una noticia con el mismo slug
       const existingNews = await News.findOne({
         where: { slug }
@@ -161,7 +234,8 @@ class BaseScraper {
         categoryId: this.categoryId,
         slug: slug,
         publishedAt: newsData.publishedAt || new Date(),
-        sourceType: 'scraped' // ← MARCADOR PARA NOTICIAS SCRAPEADAS
+        type: 'scraped', // ← MARCADOR PARA NOTICIAS SCRAPEADAS
+        isPublished: newsData.isPublished !== undefined ? newsData.isPublished : true // Por defecto publicadas
       };
 
       // Validar longitud mínima
@@ -178,12 +252,12 @@ class BaseScraper {
 
     } catch (error) {
       console.error(`❌ Error guardando noticia:`, error.message);
-      
+
       // Log más detallado para debugging
       if (error.name === 'SequelizeValidationError') {
         console.error('Errores de validación:', error.errors.map(e => e.message));
       }
-      
+
       return null;
     }
   }

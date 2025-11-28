@@ -1,178 +1,163 @@
-// controllers/reportController.js
-const { News, Category } = require('../models');
-const { sequelize } = require('../config/database');
+const { News, Category, Source, sequelize } = require('../models');
 const { Op } = require('sequelize');
 
-// GET /api/reports/overview
-exports.getOverviewStats = async (req, res) => {
+// Obtener estadísticas generales
+exports.getStats = async (req, res) => {
   try {
-    const [
-      totalNews,
-      totalOriginal,
-      totalScraped,
-      totalPublished,
-      totalDraft,
-      totalViews,
-      totalCategories
-    ] = await Promise.all([
-      News.count(),
-      News.count({ where: { type: 'original' } }),
-      News.count({ where: { type: 'scraped' } }),
-      News.count({ where: { isPublished: true } }),
-      News.count({ where: { isPublished: false } }),
-      News.sum('views'),
-      Category.count(),
+    // 1. Noticias por Categoría
+    const newsByCategory = await News.findAll({
+      attributes: [
+        [sequelize.col('category.name'), 'categoryName'],
+        [sequelize.fn('COUNT', sequelize.col('News.id')), 'count']
+      ],
+      include: [{
+        model: Category,
+        as: 'category', // Alias requerido
+        attributes: []
+      }],
+      group: ['category.name']
+    });
+
+    // 2. Noticias por Día (Últimos 30 días)
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+    const newsByDay = await News.findAll({
+      attributes: [
+        [sequelize.fn('DATE', sequelize.col('publishedAt')), 'date'],
+        [sequelize.fn('COUNT', sequelize.col('id')), 'count']
+      ],
+      where: {
+        publishedAt: {
+          [Op.gte]: thirtyDaysAgo
+        }
+      },
+      group: [sequelize.fn('DATE', sequelize.col('publishedAt'))],
+      order: [[sequelize.fn('DATE', sequelize.col('publishedAt')), 'ASC']]
+    });
+
+    // 3. Total de Fuentes
+    const totalSources = await Source.count();
+    const totalNews = await News.count();
+
+    res.json({
+      newsByCategory,
+      newsByDay,
+      totalSources,
+      totalNews
+    });
+  } catch (error) {
+    console.error('Error getting stats:', error);
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Análisis de Palabras (Word Cloud)
+exports.getWordCloud = async (req, res) => {
+  try {
+    // Obtener las últimas 200 noticias
+    const news = await News.findAll({
+      attributes: ['title'],
+      limit: 200,
+      order: [['publishedAt', 'DESC']]
+    });
+
+    const text = news.map(n => n.title).join(' ').toLowerCase();
+
+    // Lista básica de stopwords en español
+    const stopwords = new Set([
+      'de', 'la', 'que', 'el', 'en', 'y', 'a', 'los', 'del', 'se', 'las', 'por', 'un', 'para', 'con', 'no', 'una', 'su', 'al', 'lo', 'como', 'más', 'pero', 'sus', 'le', 'ya', 'o', 'este', 'sí', 'porque', 'esta', 'entre', 'cuando', 'muy', 'sin', 'sobre', 'también', 'me', 'hasta', 'hay', 'donde', 'quien', 'desde', 'todo', 'nos', 'durante', 'todos', 'uno', 'les', 'ni', 'contra', 'otros', 'ese', 'eso', 'ante', 'ellos', 'e', 'esto', 'mí', 'antes', 'algunos', 'qué', 'unos', 'yo', 'otro', 'otras', 'otra', 'él', 'tanto', 'esa', 'estos', 'mucho', 'quienes', 'nada', 'muchos', 'cual', 'poco', 'ella', 'estar', 'estas', 'algunas', 'algo', 'nosotros', 'mi', 'mis', 'tú', 'te', 'ti', 'tu', 'tus', 'ellas', 'nosotras', 'vosotros', 'vosotras', 'os', 'mío', 'mía', 'míos', 'mías', 'tuyo', 'tuya', 'tuyos', 'tuyas', 'suyo', 'suya', 'suyos', 'suyas', 'nuestro', 'nuestra', 'nuestros', 'nuestras', 'vuestro', 'vuestra', 'vuestros', 'vuestras', 'es', 'son', 'fue', 'era', 'ser', 'estar'
     ]);
 
-    // Serie de tiempo últimos 30 días (total de noticias por día)
-    const since = new Date();
-    since.setDate(since.getDate() - 29); // últimos 30 días
+    const words = text.match(/\b[a-záéíóúñ]+\b/g) || [];
+    const frequency = {};
 
-    const perDay = await News.findAll({
-      attributes: [
-        [sequelize.fn('DATE', sequelize.col('createdAt')), 'date'],
-        [sequelize.fn('COUNT', sequelize.col('id')), 'count'],
-      ],
-      where: {
-        createdAt: { [Op.gte]: since },
-      },
-      group: [sequelize.fn('DATE', sequelize.col('createdAt'))],
-      order: [[sequelize.fn('DATE', sequelize.col('createdAt')), 'ASC']],
-      raw: true,
+    words.forEach(word => {
+      if (!stopwords.has(word) && word.length > 3) {
+        frequency[word] = (frequency[word] || 0) + 1;
+      }
     });
 
-    res.json({
-      success: true,
-      data: {
-        totalNews,
-        totalOriginal,
-        totalScraped,
-        totalPublished,
-        totalDraft,
-        totalViews: totalViews || 0,
-        totalCategories,
-        perDay: perDay.map(row => ({
-          date: row.date,
-          count: Number(row.count || 0),
-        })),
-      },
-    });
+    // Convertir a array y ordenar
+    const wordCloud = Object.entries(frequency)
+      .map(([text, value]) => ({ text, value }))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 50); // Top 50
+
+    res.json(wordCloud);
+
   } catch (error) {
-    console.error('❌ Error en getOverviewStats:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error obteniendo estadísticas generales',
-      error: error.message,
-    });
+    console.error('Error getting word cloud:', error);
+    res.status(500).json({ message: error.message });
   }
 };
 
-// GET /api/reports/by-category
-exports.getNewsByCategory = async (req, res) => {
+// Predicción simple (Regresión Lineal)
+exports.getPrediction = async (req, res) => {
   try {
-    const rows = await News.findAll({
+    // Obtener datos históricos (últimos 60 días para mejor precisión)
+    const sixtyDaysAgo = new Date();
+    sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60);
+
+    const history = await News.findAll({
       attributes: [
-        'categoryId',
-        [sequelize.fn('COUNT', sequelize.col('News.id')), 'totalNews'],
-        [
-          sequelize.fn(
-            'SUM',
-            sequelize.literal("CASE WHEN type = 'original' THEN 1 ELSE 0 END")
-          ),
-          'originalNews',
-        ],
-        [
-          sequelize.fn(
-            'SUM',
-            sequelize.literal("CASE WHEN type = 'scraped' THEN 1 ELSE 0 END")
-          ),
-          'scrapedNews',
-        ],
-      ],
-      include: [
-        {
-          model: Category,
-          as: 'category',
-          attributes: ['name'],
-        },
-      ],
-      group: ['categoryId', 'category.id', 'category.name'],
-      raw: true,
-    });
-
-    const data = rows.map(row => ({
-      categoryId: row.categoryId,
-      categoryName: row['category.name'] || 'Sin categoría',
-      totalNews: Number(row.totalNews || 0),
-      originalNews: Number(row.originalNews || 0),
-      scrapedNews: Number(row.scrapedNews || 0),
-    }));
-
-    res.json({
-      success: true,
-      data,
-    });
-  } catch (error) {
-    console.error('❌ Error en getNewsByCategory:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error obteniendo noticias por categoría',
-      error: error.message,
-    });
-  }
-};
-
-// GET /api/reports/time-series
-exports.getNewsTimeSeries = async (req, res) => {
-  try {
-    const { days = 30 } = req.query;
-    const since = new Date();
-    since.setDate(since.getDate() - (Number(days) - 1));
-
-    const rows = await News.findAll({
-      attributes: [
-        [sequelize.fn('DATE', sequelize.col('createdAt')), 'date'],
-        [sequelize.fn('COUNT', sequelize.col('id')), 'totalNews'],
-        [
-          sequelize.fn(
-            'SUM',
-            sequelize.literal("CASE WHEN type = 'original' THEN 1 ELSE 0 END")
-          ),
-          'originalNews',
-        ],
-        [
-          sequelize.fn(
-            'SUM',
-            sequelize.literal("CASE WHEN type = 'scraped' THEN 1 ELSE 0 END")
-          ),
-          'scrapedNews',
-        ],
+        [sequelize.fn('DATE', sequelize.col('publishedAt')), 'date'],
+        [sequelize.fn('COUNT', sequelize.col('id')), 'count']
       ],
       where: {
-        createdAt: { [Op.gte]: since },
+        publishedAt: {
+          [Op.gte]: sixtyDaysAgo
+        }
       },
-      group: [sequelize.fn('DATE', sequelize.col('createdAt'))],
-      order: [[sequelize.fn('DATE', sequelize.col('createdAt')), 'ASC']],
-      raw: true,
+      group: [sequelize.fn('DATE', sequelize.col('publishedAt'))],
+      order: [[sequelize.fn('DATE', sequelize.col('publishedAt')), 'ASC']]
     });
 
-    const data = rows.map(row => ({
-      date: row.date,
-      totalNews: Number(row.totalNews || 0),
-      originalNews: Number(row.originalNews || 0),
-      scrapedNews: Number(row.scrapedNews || 0),
+    // Preparar datos para regresión (x = día 1, 2, 3..., y = cantidad)
+    const dataPoints = history.map((item, index) => ({
+      x: index + 1,
+      y: parseInt(item.dataValues.count, 10)
     }));
 
+    if (dataPoints.length < 2) {
+      return res.json({ prediction: [], message: 'Insuficientes datos para predecir' });
+    }
+
+    // Calcular Regresión Lineal Simple: y = mx + b
+    const n = dataPoints.length;
+    const sumX = dataPoints.reduce((acc, p) => acc + p.x, 0);
+    const sumY = dataPoints.reduce((acc, p) => acc + p.y, 0);
+    const sumXY = dataPoints.reduce((acc, p) => acc + (p.x * p.y), 0);
+    const sumXX = dataPoints.reduce((acc, p) => acc + (p.x * p.x), 0);
+
+    const slope = (n * sumXY - sumX * sumY) / (n * sumXX - sumX * sumX);
+    const intercept = (sumY - slope * sumX) / n;
+
+    // Predecir próximos 7 días
+    const predictions = [];
+    const lastDate = new Date(history[history.length - 1].dataValues.date);
+
+    for (let i = 1; i <= 7; i++) {
+      const nextX = n + i;
+      const predictedY = Math.max(0, Math.round(slope * nextX + intercept)); // No negativos
+
+      const nextDate = new Date(lastDate);
+      nextDate.setDate(nextDate.getDate() + i);
+
+      predictions.push({
+        date: nextDate.toISOString().split('T')[0],
+        predictedCount: predictedY
+      });
+    }
+
     res.json({
-      success: true,
-      data,
+      slope,
+      intercept,
+      predictions
     });
+
   } catch (error) {
-    console.error('❌ Error en getNewsTimeSeries:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error obteniendo serie de tiempo de noticias',
-      error: error.message,
-    });
+    console.error('Error calculating prediction:', error);
+    res.status(500).json({ message: error.message });
   }
 };

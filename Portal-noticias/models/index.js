@@ -1,6 +1,9 @@
+const { sequelize } = require('../config/database');
 const User = require('./User');
 const Category = require('./Category');
 const News = require('./News');
+const Payment = require('./Payment');
+const Source = require('./Source');
 
 // Relaciones
 
@@ -28,8 +31,23 @@ User.hasMany(News, {
   as: 'news'
 });
 
+// Payment belongs to User
+Payment.belongsTo(User, {
+  foreignKey: 'userId',
+  as: 'user'
+});
+
+// User has many Payments
+User.hasMany(Payment, {
+  foreignKey: 'userId',
+  as: 'payments'
+});
+
 module.exports = {
   User,
   Category,
-  News
+  News,
+  Payment,
+  Source,
+  sequelize
 };
